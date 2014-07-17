@@ -13,8 +13,10 @@ import (
 	"github.com/youtube/vitess/go/sqltypes"
 	"github.com/youtube/vitess/go/stats"
 	"github.com/youtube/vitess/go/sync2"
+	"github.com/youtube/vitess/go/vt/accesschecker"
 	"github.com/youtube/vitess/go/vt/dbconfigs"
 	"github.com/youtube/vitess/go/vt/dbconnpool"
+	"github.com/youtube/vitess/go/vt/logutil"
 	"github.com/youtube/vitess/go/vt/mysqlctl"
 	"github.com/youtube/vitess/go/vt/schema"
 	"github.com/youtube/vitess/go/vt/sqlparser"
@@ -67,6 +69,9 @@ type QueryEngine struct {
 	strictMode       sync2.AtomicInt64
 	maxResultSize    sync2.AtomicInt64
 	streamBufferSize sync2.AtomicInt64
+
+	// loggers
+	accessCheckerLogger *logutil.ThrottledLogger
 }
 
 type compiledPlan struct {
@@ -142,6 +147,9 @@ func NewQueryEngine(config Config) *QueryEngine {
 	}
 	qe.maxResultSize = sync2.AtomicInt64(config.MaxResultSize)
 	qe.streamBufferSize = sync2.AtomicInt64(config.StreamBufferSize)
+
+	// loggers
+	qe.accessCheckerLogger = logutil.NewThrottledLogger("accessChecker", 1*time.Second)
 
 	// Stats
 	stats.Publish("MaxResultSize", stats.IntFunc(qe.maxResultSize.Get))
@@ -309,6 +317,12 @@ func (qe *QueryEngine) Execute(logStats *SQLQueryStats, query *proto.Query) (rep
 		panic(NewTabletError(FAIL, "Query disallowed due to rule: %s", desc))
 	case QR_FAIL_RETRY:
 		panic(NewTabletError(RETRY, "Query disallowed due to rule: %s", desc))
+	}
+
+	// Perform necessary access checks
+	// TODO(anandhenry): Return the error once this is more reliable
+	if err := accesschecker.Allow(logStats.context, basePlan.ExecPlan); err != nil {
+		qe.accessCheckerLogger.Errorf(err.Error())
 	}
 
 	if basePlan.PlanId == sqlparser.PLAN_DDL {

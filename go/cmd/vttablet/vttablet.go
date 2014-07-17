@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	log "github.com/golang/glog"
+	"github.com/youtube/vitess/go/vt/accesschecker/tableaccesschecker"
 	"github.com/youtube/vitess/go/vt/binlog"
 	"github.com/youtube/vitess/go/vt/dbconfigs"
 	"github.com/youtube/vitess/go/vt/mysqlctl"
@@ -20,9 +21,10 @@ import (
 )
 
 var (
-	tabletPath     = flag.String("tablet-path", "", "tablet alias or path to zk node representing the tablet")
-	enableRowcache = flag.Bool("enable-rowcache", false, "enable rowcacche")
-	overridesFile  = flag.String("schema-override", "", "schema overrides file")
+	tabletPath               = flag.String("tablet-path", "", "tablet alias or path to zk node representing the tablet")
+	enableRowcache           = flag.Bool("enable-rowcache", false, "enable rowcacche")
+	enableTableAccessChecker = flag.Bool("enable-table-access-checker", false, "enable per table access checker")
+	overridesFile            = flag.String("schema-override", "", "schema overrides file")
 
 	agent *tabletmanager.ActionAgent
 )
@@ -77,6 +79,11 @@ func main() {
 	}
 	dbcfgs.App.EnableRowcache = *enableRowcache
 
+	if *enableTableAccessChecker {
+		if err := tableaccesschecker.Register(); err != nil {
+			log.Fatalf("table access checker initialization failed: %v", err)
+		}
+	}
 	tabletserver.InitQueryService()
 	binlog.RegisterUpdateStreamService(mycnf)
 
